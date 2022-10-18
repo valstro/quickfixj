@@ -44,69 +44,11 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 
-public class Application extends quickfix.MessageCracker implements quickfix.Application, PropertyChangeListener {
-    private static final String DEFAULT_MARKET_PRICE_KEY = "DefaultMarketPrice";
-    private static final String ALWAYS_FILL_LIMIT_KEY = "AlwaysFillLimitOrders";
-    private static final String VALID_ORDER_TYPES_KEY = "ValidOrderTypes";
+public class Application extends quickfix.MessageCracker implements quickfix.Application /*, PropertyChangeListener*/ {
     private final Logger log = LoggerFactory.getLogger(getClass());
-    private final boolean alwaysFillLimitOrders;
-    private final HashSet<String> validOrderTypes = new HashSet<>();
-    private MarketDataProvider marketDataProvider;
-    private final PropertyChangeSupport pcs = new PropertyChangeSupport(this);
-
-    private SessionSettings settings;
-    public SessionSettings getSettings() { return this.settings; } 
-    public void setSettings(SessionSettings settings) { this.settings = settings; }
-
-    public Application(SessionSettings settings) throws ConfigError, FieldConvertError {
-        this.pcs.addPropertyChangeListener(this);
-        this.settings = settings;
-        initializeValidOrderTypes(settings);
-        initializeMarketDataProvider(settings);
-        alwaysFillLimitOrders = settings.isSetting(ALWAYS_FILL_LIMIT_KEY) && settings.getBool(ALWAYS_FILL_LIMIT_KEY);
-    }
-
-    private void initializeMarketDataProvider(SessionSettings settings) throws ConfigError, FieldConvertError {
-        if (settings.isSetting(DEFAULT_MARKET_PRICE_KEY)) {
-            if (marketDataProvider == null) {
-                final double defaultMarketPrice = settings.getDouble(DEFAULT_MARKET_PRICE_KEY);
-                marketDataProvider = new MarketDataProvider() {
-                    public double getAsk(String symbol) {
-                        return defaultMarketPrice;
-                    }
-
-                    public double getBid(String symbol) {
-                        return defaultMarketPrice;
-                    }
-                };
-            } else {
-                log.warn("Ignoring {} since provider is already defined.", DEFAULT_MARKET_PRICE_KEY);
-            }
-        }
-    }
-
-    private void initializeValidOrderTypes(SessionSettings settings) throws ConfigError, FieldConvertError {
-        if (settings.isSetting(VALID_ORDER_TYPES_KEY)) {
-            List<String> orderTypes = Arrays
-                .asList(settings.getString(VALID_ORDER_TYPES_KEY).trim().split("\\s*,\\s*"));
-            validOrderTypes.addAll(orderTypes);
-        } else {
-            validOrderTypes.add(OrdType.LIMIT + "");
-        }
-    }
-
-    public void fire() { 
-        System.out.println("fire Settings changed!====>" + this.settings);
-        pcs.firePropertyChange("endpoints", null, this.settings);
-    }
-
-    @Override
-    public void propertyChange(PropertyChangeEvent evt) {
-        System.out.println("\n==============> Property changed! <==============\n" +  evt);
-    }
-
     public void onCreate(SessionID sessionID) {
-        Session.lookupSession(sessionID).getLog().onEvent("Valid order types: " + validOrderTypes);
+        //Session.lookupSession(sessionID).getLog().onEvent("Valid order types: " + validOrderTypes);
+        log.info("===> onCreate ...");
     }
 
     public void onLogon(SessionID sessionID) {
@@ -114,24 +56,30 @@ public class Application extends quickfix.MessageCracker implements quickfix.App
     }
 
     public void onLogout(SessionID sessionID) {
+        log.info("===> onLogout ...");
     }
 
     public void toAdmin(quickfix.Message message, SessionID sessionID) {
+        log.info("===> toAdmin ...");
     }
 
     public void toApp(quickfix.Message message, SessionID sessionID) throws DoNotSend {
+        log.info("===> toApp ...");
     }
 
     public void fromAdmin(quickfix.Message message, SessionID sessionID) throws FieldNotFound, IncorrectDataFormat,
            IncorrectTagValue, RejectLogon {
+               log.info("===> fromAdmin ...");
     }
 
     public void fromApp(quickfix.Message message, SessionID sessionID) throws FieldNotFound, IncorrectDataFormat,
            IncorrectTagValue, UnsupportedMessageType {
                crack(message, sessionID);
+               log.info("===> fromApp ...");
     }
 
     private void sendMessage(SessionID sessionID, Message message) {
+        log.info("===> sendMessage...");
         try {
             Session session = Session.lookupSession(sessionID);
             if (session == null) {
@@ -162,19 +110,6 @@ public class Application extends quickfix.MessageCracker implements quickfix.App
             return new ApplVerID(ApplVerID.FIX50);
         } else {
             return MessageUtils.toApplVerID(beginString);
-        }
-    }
-
-
-    private void validateOrder(Message order) throws IncorrectTagValue, FieldNotFound {
-        OrdType ordType = new OrdType(order.getChar(OrdType.FIELD));
-        if (!validOrderTypes.contains(Character.toString(ordType.getValue()))) {
-            log.error("Order type not in ValidOrderTypes setting");
-            throw new IncorrectTagValue(ordType.getField());
-        }
-        if (ordType.getValue() == OrdType.MARKET && marketDataProvider == null) {
-            log.error("DefaultMarketPrice setting not specified for market order");
-            throw new IncorrectTagValue(ordType.getField());
         }
     }
 }
