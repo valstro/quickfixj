@@ -221,7 +221,8 @@ public abstract class AbstractSocketAcceptor extends SessionConnector implements
         return object1 == null ? object2 == null : object1.equals(object2);
     }
 
-    private void createSessions(SessionSettings settings, boolean continueInitOnError) throws ConfigError {
+    public void createSessions(SessionSettings settings, boolean continueInitOnError) throws ConfigError {
+        log.info("==> Create sessions ...");
         Map<SessionID, Session> allSessions = new HashMap<>();
         for (Iterator<SessionID> i = settings.sectionIterator(); i.hasNext();) {
             SessionID sessionID = i.next();

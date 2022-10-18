@@ -95,10 +95,12 @@ public class BanzaiApplication implements Application {
     }
 
     public void onLogon(SessionID sessionID) {
+        System.out.println("Hello onLogon ....");
         observableLogon.logon(sessionID);
     }
 
     public void onLogout(SessionID sessionID) {
+        System.out.println("Hello onLogout ....");
         observableLogon.logoff(sessionID);
     }
 
@@ -130,6 +132,7 @@ public class BanzaiApplication implements Application {
         }
 
         public void run() {
+          System.out.println("Hello MessageProcessor ....");
             try {
                 MsgType msgType = new MsgType();
                 if (isAvailable) {
@@ -182,6 +185,7 @@ public class BanzaiApplication implements Application {
     }
 
     private Message createMessage(Message message, String msgType) throws FieldNotFound {
+          System.out.println("Hello createMesage ....");
         return messageFactory.create(message.getHeader().getString(BeginString.FIELD), msgType);
     }
 
@@ -193,16 +197,21 @@ public class BanzaiApplication implements Application {
     }
 
     private void executionReport(Message message, SessionID sessionID) throws FieldNotFound {
-
+        System.out.println("Hello from executionReport ....");
         ExecID execID = (ExecID) message.getField(new ExecID());
-        if (alreadyProcessed(execID, sessionID))
-            return;
-
-        Order order = orderTableModel.getOrder(message.getField(new ClOrdID()).getValue());
-        if (order == null) {
+        System.out.println("ExecId is " + execID.toString());
+        if (alreadyProcessed(execID, sessionID)) {
+            System.out.println("this id was already processed! --> return");
             return;
         }
 
+        Order order = orderTableModel.getOrder(message.getField(new ClOrdID()).getValue());
+        if (order == null) {
+            System.out.println("Failed to lcoate order by ClOrdID -> return");
+            return;
+        }
+
+        System.out.println("Looks like we found an order ...");
         BigDecimal fillSize;
 
         if (message.isSetField(LastShares.FIELD)) {

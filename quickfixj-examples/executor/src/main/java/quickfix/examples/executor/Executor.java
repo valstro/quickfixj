@@ -1,30 +1,18 @@
-/*******************************************************************************
- * Copyright (c) quickfixengine.org  All rights reserved.
- *
- * This file is part of the QuickFIX FIX Engine
- *
- * This file may be distributed under the terms of the quickfixengine.org
- * license as defined by quickfixengine.org and appearing in the file
- * LICENSE included in the packaging of this file.
- *
- * This file is provided AS IS with NO WARRANTY OF ANY KIND, INCLUDING
- * THE WARRANTY OF DESIGN, MERCHANTABILITY AND FITNESS FOR A
- * PARTICULAR PURPOSE.
- *
- * See http://www.quickfixengine.org/LICENSE for licensing information.
- *
- * Contact ask@quickfixengine.org if any conditions of this licensing
- * are not clear to you.
- ******************************************************************************/
-
 package quickfix.examples.executor;
 
+import java.beans.PropertyChangeEvent;
+import java.beans.PropertyChangeListener;
+import quickfix.FixVersions;
+import quickfix.Session;
 import org.quickfixj.jmx.JmxExporter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import quickfix.ConfigError;
 import quickfix.DefaultMessageFactory;
 import quickfix.FieldConvertError;
+import quickfix.DefaultSessionFactory;
+import quickfix.mina.acceptor.AbstractSocketAcceptor;
+import quickfix.SessionFactory;
 import quickfix.FileStoreFactory;
 import quickfix.LogFactory;
 import quickfix.MessageFactory;
@@ -34,8 +22,6 @@ import quickfix.ScreenLogFactory;
 import quickfix.SessionID;
 import quickfix.SessionSettings;
 import quickfix.SocketAcceptor;
-import quickfix.mina.acceptor.DynamicAcceptorSessionProvider;
-import quickfix.mina.acceptor.DynamicAcceptorSessionProvider.TemplateMapping;
 
 import javax.management.JMException;
 import javax.management.ObjectName;
@@ -48,111 +34,79 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-
-import static quickfix.Acceptor.SETTING_ACCEPTOR_TEMPLATE;
-import static quickfix.Acceptor.SETTING_SOCKET_ACCEPT_ADDRESS;
-import static quickfix.Acceptor.SETTING_SOCKET_ACCEPT_PORT;
+import java.beans.PropertyChangeSupport;
 
 public class Executor {
     private final static Logger log = LoggerFactory.getLogger(Executor.class);
-    private final SocketAcceptor acceptor;
-    private final Map<InetSocketAddress, List<TemplateMapping>> dynamicSessionMappings = new HashMap<>();
-
-    private final JmxExporter jmxExporter;
-    private final ObjectName connectorObjectName;
-
-    public Executor(SessionSettings settings) throws ConfigError, FieldConvertError, JMException {
-        Application application = new Application(settings);
-        MessageStoreFactory messageStoreFactory = new FileStoreFactory(settings);
-        LogFactory logFactory = new ScreenLogFactory(true, true, true);
-        MessageFactory messageFactory = new DefaultMessageFactory();
-
-        acceptor = new SocketAcceptor(application, messageStoreFactory, settings, logFactory,
-                messageFactory);
-
-        configureDynamicSessions(settings, application, messageStoreFactory, logFactory,
-                messageFactory);
-
-        jmxExporter = new JmxExporter();
-        connectorObjectName = jmxExporter.register(acceptor);
-        log.info("Acceptor registered with JMX, name={}", connectorObjectName);
-    }
-
-    private void configureDynamicSessions(SessionSettings settings, Application application,
-            MessageStoreFactory messageStoreFactory, LogFactory logFactory,
-            MessageFactory messageFactory) throws ConfigError, FieldConvertError {
-        //
-        // If a session template is detected in the settings, then
-        // set up a dynamic session provider.
-        //
-
-        Iterator<SessionID> sectionIterator = settings.sectionIterator();
-        while (sectionIterator.hasNext()) {
-            SessionID sessionID = sectionIterator.next();
-            if (isSessionTemplate(settings, sessionID)) {
-                InetSocketAddress address = getAcceptorSocketAddress(settings, sessionID);
-                getMappings(address).add(new TemplateMapping(sessionID, sessionID));
-            }
-        }
-
-        for (Map.Entry<InetSocketAddress, List<TemplateMapping>> entry : dynamicSessionMappings
-                .entrySet()) {
-            acceptor.setSessionProvider(entry.getKey(), new DynamicAcceptorSessionProvider(
-                    settings, entry.getValue(), application, messageStoreFactory, logFactory,
-                    messageFactory));
-        }
-    }
-
-    private List<TemplateMapping> getMappings(InetSocketAddress address) {
-        return dynamicSessionMappings.computeIfAbsent(address, k -> new ArrayList<>());
-    }
-
-    private InetSocketAddress getAcceptorSocketAddress(SessionSettings settings, SessionID sessionID)
-            throws ConfigError, FieldConvertError {
-        String acceptorHost = "0.0.0.0";
-        if (settings.isSetting(sessionID, SETTING_SOCKET_ACCEPT_ADDRESS)) {
-            acceptorHost = settings.getString(sessionID, SETTING_SOCKET_ACCEPT_ADDRESS);
-        }
-        int acceptorPort = (int) settings.getLong(sessionID, SETTING_SOCKET_ACCEPT_PORT);
-
-        return new InetSocketAddress(acceptorHost, acceptorPort);
-    }
-
-    private boolean isSessionTemplate(SessionSettings settings, SessionID sessionID)
-            throws ConfigError, FieldConvertError {
-        return settings.isSetting(sessionID, SETTING_ACCEPTOR_TEMPLATE)
-                && settings.getBool(sessionID, SETTING_ACCEPTOR_TEMPLATE);
-    }
-
-    private void start() throws RuntimeError, ConfigError {
-        acceptor.start();
-    }
-
-    private void stop() {
-        try {
-            jmxExporter.getMBeanServer().unregisterMBean(connectorObjectName);
-        } catch (Exception e) {
-            log.error("Failed to unregister acceptor from JMX", e);
-        }
-        acceptor.stop();
-    }
 
     public static void main(String[] args) throws Exception {
         try {
             InputStream inputStream = getSettingsInputStream(args);
             SessionSettings settings = new SessionSettings(inputStream);
             inputStream.close();
-
-            Executor executor = new Executor(settings);
-            executor.start();
-
-            System.out.println("press <enter> to quit");
-            System.in.read();
-
-            executor.stop();
+            new Executor().run(settings);
         } catch (Exception e) {
             log.error(e.getMessage(), e);
         }
+    }
+
+    public void run(SessionSettings settings) throws Exception { 
+        Application application = new Application(settings);
+        MessageStoreFactory messageStoreFactory = new FileStoreFactory(settings);
+        LogFactory logFactory = new ScreenLogFactory(true, true, true);
+        MessageFactory messageFactory = new DefaultMessageFactory();
+        DefaultSessionFactory sessionFactory = new DefaultSessionFactory(application, messageStoreFactory, logFactory);
+        SocketAcceptor acceptor = new SocketAcceptor(sessionFactory, settings);
+        acceptor.start();
+
+        log.info("=============");
+        log.info("Sessions are: {}", acceptor.getManagedSessions());
+        SessionID sessionId = new SessionID(FixVersions.BEGINSTRING_FIX44, "EXEC", "BANZAI");
+        log.info("SessionID {}", sessionId);
+        Session session = Session.lookupSession(sessionId);
+        log.info("Session is {}", session);
+        log.info("Session.getRemoteAddress {}", session.getRemoteAddress());
+        log.info("acceptor.getAcceptorAddresses: {}", acceptor.getAcceptorAddresses());
+        log.info("acceptor.getEndpoints: {}", acceptor.getEndpoints());
+        log.info("executor.settings: {}", acceptor.getSettings());
+        log.info("=============");
+
+        System.out.println("PRESS ANY KEY TO ADD A SESSION FOR EXEC2->BANZAI2");
+
+        System.in.read();
+        SessionID newId = new SessionID(FixVersions.BEGINSTRING_FIX44, "EXEC2", "BANZAI2");
+        settings.setString(newId, SessionFactory.SETTING_CONNECTION_TYPE, SessionFactory.ACCEPTOR_CONNECTION_TYPE);
+        settings.setString(newId, "BeginString", FixVersions.BEGINSTRING_FIX44);
+        settings.setString(newId,"ConnectionType", "acceptor"); 
+        settings.setString(newId,"SocketAcceptPort", "9880"); 
+        settings.setString(newId,"SocketConnectAddress", "0.0.0.0"); 
+        settings.setString(newId,"SenderCompID", "EXEC2"); 
+        settings.setString(newId,"TargetCompID", "BANZAI2"); 
+        settings.setString(newId,"AcceptorTempalate", "Y"); 
+
+        /* === ?? === */
+        // We don't want to stop & restart:
+        //acceptor.stop();
+        //acceptor.start();
+        /// Or use dynamic things (which don't work for our use case anyway):
+        //Session newSession = sessionFactory.create(newId, settings); 
+        //acceptor.addDynamicSession(newSession);
+        //   private void createSessions(SessionSettings settings, boolean continueInitOnError) throws ConfigError {
+        java.lang.reflect.Method meth = AbstractSocketAcceptor.class.getDeclaredMethod("createSessions", SessionSettings.class, boolean.class); 
+        meth.setAccessible(true);
+        System.out.println("===> Start invoke <====");
+        meth.invoke(acceptor, settings, false);
+        System.out.println("===> End invoke <====");
+        /* === ?? === */
+
+        while(true) { 
+            log.info("acceptor.getAcceptorAddresses: {}", acceptor.getAcceptorAddresses());
+            log.info("Sessions are: {}", acceptor.getManagedSessions());
+            log.info("acceptor.getEndpoints: {}", acceptor.getEndpoints());
+            log.info("executor.settings: {}", acceptor.getSettings());
+            java.lang.Thread.sleep(5000);
+        }
+        //acceptor.stop();
     }
 
     private static InputStream getSettingsInputStream(String[] args) throws FileNotFoundException {

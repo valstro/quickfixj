@@ -68,7 +68,9 @@ class AcceptorIoHandler extends AbstractIoHandler {
             final Optional<String> msgTypeField = message.getHeader().getOptionalString(MsgType.FIELD);
             if (msgTypeField.isPresent() && msgTypeField.get().equals(MsgType.LOGON)) {
                 final SessionID sessionID = MessageUtils.getReverseSessionID(message);
+                log.info("Looking for SessionID (reversed?): {} ..", sessionID);
                 qfSession = sessionProvider.getSession(sessionID, eventHandlingStrategy.getSessionConnector());
+                log.info("qfSession is: {}", qfSession);
                 if (qfSession != null) {
                     final Log sessionLog = qfSession.getLog();
                     Responder responder = qfSession.getResponder();
